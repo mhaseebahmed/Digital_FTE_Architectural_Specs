@@ -34,36 +34,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### Step 2: Initialize the Project Workspace
 We will create a contained workspace.
 
-1.  Create directory:
+1.  Clone the Starter Kit:
     ```bash
-    mkdir AI_Employee
-    cd AI_Employee
+    git clone https://github.com/mhaseebahmed/digital-fte-starter-kit.git
+    cd digital-fte-starter-kit
     ```
 
-2.  Initialize Project:
+2.  Sync Dependencies:
     ```bash
-    uv init
+    uv sync
     ```
-    *This creates a `pyproject.toml` and `.python-version` file.*
-
-3.  **Critical Security Step:** Create a `.gitignore` file immediately.
-    *   Create a file named `.gitignore`.
-    *   Add the following content:
-        ```text
-        .venv/
-        .env
-        Vault/99_Logs/
-        Vault/System/credentials.json
-        Vault/System/token.json
-        __pycache__/
-        .vscode/
-        .idea/
-        ```
-
-4.  **Cleanup:** Remove the default `hello.py` file created by `uv init`.
-    ```bash
-    rm hello.py
-    ```
+    *This creates a `.venv` folder and installs all libraries defined in `pyproject.toml`.*
 
 ### Step 3: Install Node.js & Claude Code
 1.  **Install Node.js:** Download the **LTS** version from [nodejs.org](https://nodejs.org/).
@@ -72,9 +53,7 @@ We will create a contained workspace.
     npm install -g @anthropic/claude-code
     ```
 
-### Step 4: Authentication & Configuration
-For enterprise stability, we use Environment Variables instead of browser sessions where possible.
-
+### Step 4: Authentication
 1.  **Login:**
     ```bash
     claude login
@@ -89,9 +68,16 @@ For enterprise stability, we use Environment Variables instead of browser sessio
 
 ---
 
-## 3. Verification Checklist
-Do not proceed until all 3 pass.
+## 3. Project Structure (Monorepo)
+The project is organized into isolated tiers for modularity.
 
-*   [ ] `uv --version` returns 0.4.x or higher.
-*   [ ] `node --version` returns v20.x or higher.
-*   [ ] `claude --version` returns the CLI version.
+```text
+digital-fte-starter-kit/
+├── shared_foundation/      <-- Logging, Config, Exceptions
+├── tier_1_bronze/          <-- File System Watcher & Brain
+├── tier_2_silver/          <-- Gmail, WhatsApp, HITL
+├── tier_3_gold/            <-- Finance, Audit, Social
+├── src/                    <-- Entry Point (main.py)
+├── scripts/                <-- Setup Tools
+└── tests/                  <-- Automated Test Suite
+```

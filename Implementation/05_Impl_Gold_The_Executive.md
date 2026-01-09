@@ -12,7 +12,7 @@ uv add schedule
 
 ---
 
-## 2. The Auditor Script (`auditor.py`)
+## 2. The Auditor Script (`tier_3_gold/auditor.py`)
 This script does NOT run continuously. It is a "One-Shot" task triggered by the scheduler.
 
 **Logic:**
@@ -20,84 +20,24 @@ This script does NOT run continuously. It is a "One-Shot" task triggered by the 
 2.  It summarizes the data.
 3.  It generates a Markdown report.
 
-```python
-import json
-import logging
-from pathlib import Path
-from datetime import datetime, timedelta
-
-def run_audit():
-    log_dir = Path("Vault/99_Logs")
-    logs = []
-    
-    # 1. Read Logs (Last 7 Days)
-    cutoff = datetime.now() - timedelta(days=7)
-    
-    # Safety Check: Ensure dir exists
-    if not log_dir.exists():
-        logging.warning("No logs found.")
-        return
-
-    for log_file in log_dir.glob("*.json"):
-        try:
-            content = log_file.read_text(encoding='utf-8')
-            if not content.strip():
-                continue # Skip empty files
-                
-            data = json.loads(content)
-            # (Optional: Check date here)
-            logs.append(data)
-        except json.JSONDecodeError:
-            logging.error(f"❌ Corrupt Log File: {log_file}")
-            continue
-        except Exception as e:
-            logging.error(f"Error reading {log_file}: {e}")
-            continue
-    
-    if not logs:
-        logging.info("No logs to audit.")
-        return
-
-    # 2. Synthesize with Claude
-    # We dump the summary to a temp file so Claude can read it
-    summary_path = Path("Vault/10_Processing/AUDIT_DATA.txt")
-    summary_path.write_text(str(logs), encoding='utf-8')
-    
-    prompt = "Read 'Vault/10_Processing/AUDIT_DATA.txt'. Write a 'Monday Morning Briefing' markdown report. Save it to 'Vault/00_Inbox'."
-    
-    logging.info("📊 Generating Report...")
-    # Using -p flag for non-interactive
-    subprocess.run(["claude", "-p", prompt])
-
-if __name__ == "__main__":
-    run_audit()
-```
-
 ---
 
-## 3. The Scheduler (`scheduler.py`)
-This runs in the background.
+## 3. The Scheduler Integration (`src/main.py`)
+The scheduler is integrated into the main Orchestrator as a separate process.
 
 ```python
 import schedule
-import time
-import subprocess
-import logging
-import sys
-from pathlib import Path
+from tier_3_gold.auditor import AuditEngine
 
-logging.basicConfig(level=logging.INFO)
+def run_scheduler():
+    auditor = AuditEngine()
+    
+    def job():
+        report = auditor.run_weekly_audit()
+        # Save Report logic...
 
-def job():
-    logging.info("⏰ Triggering Weekly Audit")
-    script_path = Path(__file__).parent / "auditor.py"
-    subprocess.run([sys.executable, str(script_path)])
-
-# Schedule: Every Monday at 9:00 AM
-schedule.every().monday.at("09:00").do(job)
-
-if __name__ == "__main__":
-    logging.info("⏳ Scheduler Active...")
+    schedule.every().monday.at("09:00").do(job)
+    
     while True:
         schedule.run_pending()
         time.sleep(60)
@@ -109,10 +49,9 @@ if __name__ == "__main__":
 To run this 24/7 without a terminal window, use PM2.
 
 1.  **Install PM2:** `npm install -g pm2`
-2.  **Start Orchestrator:** `pm2 start orchestrator.py --interpreter python`
-3.  **Start Scheduler:** `pm2 start scheduler.py --interpreter python`
-4.  **Save List:** `pm2 save`
-5.  **Startup Hook:** `pm2 startup`
+2.  **Start:** `pm2 start deployment/ecosystem.config.js`
+3.  **Save:** `pm2 save`
+4.  **Startup:** `pm2 startup`
 
 **Status:**
 You now have a fully autonomous Digital Employee that:

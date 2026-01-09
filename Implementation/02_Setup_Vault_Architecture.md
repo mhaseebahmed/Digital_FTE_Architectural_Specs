@@ -17,53 +17,60 @@ We treat the file system as a **Database**. Each folder represents a specific "S
 
 ---
 
-## 2. The Setup Script (`setup_vault.py`)
-Do not create folders manually. Use this script to ensure permission compliance and structure.
+## 2. The Setup Script (`scripts/setup_vault.py`)
+Run this script to initialize your office.
 
-**File:** `setup_vault.py`
 ```python
-import os
-import logging
 from pathlib import Path
+import sys
 
-# Configure Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Hack to import from src without installing package yet
+sys.path.append(str(Path(__file__).parent.parent))
 
-def create_digital_office():
-    root = Path("Vault")
+from shared_foundation.config import settings
+from shared_foundation.logger import setup_logger
+
+logger = setup_logger("setup")
+
+def build_office():
+    root = settings.VAULT_PATH
     
-    structure = {
-        "00_Inbox": "Drop incoming files here",
-        "10_Processing": "Temporary workspace for the Agent",
-        "20_Done": "Completed tasks archive",
-        "30_Pending_Approval": "High-risk actions waiting for signature",
-        "40_Approved": "Signed actions ready for execution",
-        "99_Logs": "System audit trails",
-        "System": "Configuration and Handbooks"
-    }
+    folders = [
+        "00_Inbox", "10_Processing", "20_Done",
+        "30_Pending_Approval", "40_Approved", "99_Logs/System", "System"
+    ]
 
-    for folder, desc in structure.items():
-        path = root / folder
-        path.mkdir(parents=True, exist_ok=True)
-        # Create a README in each folder to explain its purpose
-        (path / "README.txt").write_text(desc)
-        logging.info(f"✅ Created Directory: {path}")
+    for f in folders:
+        (root / f).mkdir(parents=True, exist_ok=True)
+        logger.info(f"📂 Created: {f}")
 
-    # Create Core Config Files
-    _create_handbook(root / "System")
+    # 1. Handbook
+    handbook = root / "System" / "Company_Handbook.md"
+    if not handbook.exists():
+        handbook.write_text("# 📘 Company Handbook\n\n1. Safety First.\n2. Be concise.\n3. Protect PII.", encoding='utf-8')
+        logger.info("📘 Created Handbook")
 
-def _create_handbook(system_path):
-    handbook_content = """# Digital FTE Handbook
-## 1. Core Directives
-*   **Safety:** You are a Level 1 Agent. You have DRAFT authority only.
-*   **Privacy:** Do not upload sensitive PII to external cloud tools.
-*   **Protocol:** Always check the /30_Pending_Approval folder before executing financial transactions.
-    """
-    (system_path / "Company_Handbook.md").write_text(handbook_content)
-    logging.info("📘 Created Company Handbook")
+    # 2. Dashboard (The GUI)
+    dashboard = root / "Dashboard.md"
+    if not dashboard.exists():
+        dashboard_content = """# 🖥️ Digital FTE Dashboard
+## 🚀 System Status
+- **Status:** Operational
+- **Level:** Bronze Tier
+
+## 📥 Active Tasks
+![[Vault/00_Inbox]]
+
+## 📊 Performance
+- Total Tasks Completed: 0
+- Revenue Generated: $0.00
+"""
+        dashboard.write_text(dashboard_content, encoding='utf-8')
+        logger.info("🖥️ Created Dashboard.md")
 
 if __name__ == "__main__":
-    create_digital_office()
+    build_office()
+    print("\n✅ Bronze Tier Office is ready for move-in.")
 ```
 
 ---
@@ -71,6 +78,6 @@ if __name__ == "__main__":
 ## 3. Execution
 Run the setup script:
 ```bash
-uv run setup_vault.py
+uv run scripts/setup_vault.py
 ```
 **Verification:** Check that the `Vault` folder exists and contains all subfolders.

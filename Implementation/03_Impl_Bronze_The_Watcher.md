@@ -24,128 +24,80 @@ A naive watcher triggers on *any* file event. If Claude reads the file, the OS m
 
 ---
 
-## 3. The Script (`watcher.py`)
+## 3. The Script (`tier_1_bronze/filesystem.py`)
 
 ```python
 import time
 import shutil
-import logging
-import subprocess
 import os
 from pathlib import Path
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
-# Logging Setup
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+# Monorepo Imports
+from shared_foundation.logger import setup_logger
+from shared_foundation.config import settings
+from shared_foundation.exceptions import TransientError
+from tier_1_bronze.claude_client import ClaudeClient
+from tier_3_gold.finance import FinancialEngine
 
-class SafeHandler(FileSystemEventHandler):
+logger = setup_logger("filesystem_watcher")
+
+class RobustHandler(FileSystemEventHandler):
+    def __init__(self):
+        self.brain = ClaudeClient()
+        self.finance = FinancialEngine()
+
     def on_created(self, event):
-        if event.is_directory:
+        if event.is_directory: return
+        file_path = Path(event.src_path)
+        if file_path.name.startswith("."): return
+        
+        logger.info(f"👀 Detected: {file_path.name}")
+        self.process_workflow(file_path)
+
+    def process_workflow(self, inbox_path: Path):
+        if not self._stabilize_file(inbox_path):
             return
 
-        src_path = Path(event.src_path)
-        
-        # Filter: Ignore temporary system files
-        if src_path.name.startswith("."): 
+        # 1. LOCK
+        processing_path = settings.get_processing_path() / inbox_path.name
+        if not self._safe_move(inbox_path, processing_path):
             return
 
-        logging.info(f"👀 Detected: {src_path.name}")
-        self.process_file(src_path)
-
-    def process_file(self, file_path):
-        # Step 0: Stabilization Loop
-        if not self.wait_for_file_ready(file_path):
-            return
-
-        # Step 1: Move to Processing (The Lock)
-        processing_dir = Path("Vault/10_Processing")
-        target_path = processing_dir / file_path.name
-        
-        # Retry Loop for Windows File Locking
-        success = False
-        for _ in range(3):
-            try:
-                shutil.move(str(file_path), str(target_path))
-                logging.info(f"🔒 Locked file into: {target_path}")
-                success = True
-                break
-            except PermissionError:
-                logging.warning("File locked by another process. Retrying in 1s...")
-                time.sleep(1)
-            except Exception as e:
-                logging.error(f"Failed to move file: {e}")
-                return
-
-        if not success:
-            logging.error("❌ Could not lock file. Aborting.")
-            return
-
-        # Step 2: Wake up Claude
-        self.trigger_brain(target_path)
-
-        # Step 3: Archive (The Cleanup)
-        done_dir = Path("Vault/20_Done")
-        final_path = done_dir / file_path.name
-        shutil.move(str(target_path), str(final_path))
-        logging.info(f"✅ Task Complete. Archived to: {final_path}")
-
-    def wait_for_file_ready(self, file_path, timeout=10):
-        """Waits until file size stops changing (Upload Complete)."""
-        start_time = time.time()
-        last_size = -1
-        
-        while time.time() - start_time < timeout:
-            try:
-                current_size = os.path.getsize(file_path)
-                if current_size == last_size and current_size > 0:
-                    return True
-                last_size = current_size
-                time.sleep(1)
-            except FileNotFoundError:
-                return False
-        
-        logging.error(f"❌ File Timeout: {file_path}")
-        return False
-
-    def trigger_brain(self, file_path):
-        prompt = f"Analyze the file '{file_path}'. Follow instructions in Vault/System/Company_Handbook.md."
-        
-        logging.info("🧠 Invoking Claude Code...")
-        # CRITICAL: Use -p flag for non-interactive prompt
-        result = subprocess.run(
-            ["claude", "-p", prompt], 
-            capture_output=True, 
-            text=True
-        )
-        
-        if result.returncode == 0:
-            logging.info("🤖 Claude finished successfully.")
+        # 2. INTELLIGENT ROUTING
+        if processing_path.suffix.lower() == '.csv':
+            self._handle_financial(processing_path)
         else:
-            logging.error(f"❌ Claude failed: {result.stderr}")
+            self._handle_generic(processing_path)
 
-def start_daemon():
-    observer = Observer()
-    handler = SafeHandler()
-    observer.schedule(handler, path='Vault/00_Inbox', recursive=False)
-    observer.start()
-    logging.info("🚀 Bronze Tier Agent Active. Drop files in /00_Inbox.")
-    
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
+        # 3. ARCHIVE
+        final_path = settings.get_done_path() / inbox_path.name
+        self._safe_move(processing_path, final_path)
+        logger.info("✨ Task Cycle Complete")
 
-if __name__ == "__main__":
-    start_daemon()
+    def _handle_financial(self, file_path: Path):
+        logger.info("💰 Routing to Financial Engine...")
+        transactions = self.finance.process_csv(file_path)
+        report = self.finance.generate_report(transactions)
+        
+        report_name = f"REPORT_{file_path.stem}.md"
+        report_path = settings.get_done_path() / report_name
+        report_path.write_text(report, encoding='utf-8')
+        logger.info(f"📊 Financial Report generated: {report_name}")
+
+    def _handle_generic(self, file_path: Path):
+        logger.info("🧠 Routing to Claude Brain...")
+        prompt = f"Read the file '{file_path}'. Follow instructions in Vault/System/Company_Handbook.md."
+        self.brain.think(prompt)
+
+    # (Helper methods _stabilize_file and _safe_move omitted for brevity - see repo)
 ```
 
 ---
 
 ## 4. Verification
-1.  Run `uv run watcher.py`.
+1.  Run `uv run src/main.py`.
 2.  Drop a **Large** PDF file in `00_Inbox`.
 3.  **Expectation:**
     *   Console says "Detected".

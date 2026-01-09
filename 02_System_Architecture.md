@@ -1,29 +1,96 @@
 # System Architecture: The Anatomy of a Bionic Employee
 
-To build a Digital FTE, we don't just write one big script. We build a system that mimics a living organism. It has four distinct body parts.
+This document details the technical architecture of the Digital FTE. The system is designed as a **Bionic Organism**, mimicking biological functions to achieve autonomy.
 
-## 1. The Senses: "The Watchers" (Python)
-*   **The Problem:** Large Language Models (the Brain) are deaf and blind. They only answer when you talk to them. They cannot "wait" for an email.
-*   **The Solution:** We write tiny, efficient Python scripts that never sleep.
-    *   **The Gmail Watcher:** Stares at your inbox.
-    *   **The File Watcher:** Stares at a folder.
-*   **Analogy:** The Security Guard. He is not the CEO. He doesn't make decisions. He just watches the door and radios the Boss when something arrives.
+## 1. High-Level Architecture Diagram
 
-## 2. The Brain: "Claude Code" (Reasoning)
-*   **The Component:** A specialized Command Line version of Claude.
-*   **Superpower:** Unlike the web chat, this version breaks out of the browser. It has **System Access**. It can read your files, write code, and execute commands.
-*   **The Flow:** The Watcher (Guard) wakes up Claude (CEO). Claude reads the data, thinks about it using the `Company_Handbook.md`, and decides what to do.
+```ascii
++---------------------------------------------------------------+
+|                      THE HUMAN MANAGER                        |
+|   (Interacts via Obsidian Dashboard & File System)            |
++------------------------------+--------------------------------+
+                               |
+                               v
++------------------------------+--------------------------------+
+|                   THE MEMORY (Obsidian Vault)                 |
+|  [Inbox]  [Needs_Action]  [Plans]  [Approved]  [Logs]         |
+|           (The Shared State & Long-Term Storage)              |
++--------------+-------------------------------+----------------+
+               ^                               |
+               | (Read/Write)                  | (Triggers)
+               v                               v
++--------------+-------------+   +-------------+----------------+
+|  THE BRAIN (Reasoning)     |   |  THE SENSES (Perception)     |
+|      Claude Code CLI       |<--|      Watcher Scripts         |
+|   (Thinks & Plans Tasks)   |   |   (Monitor External World)   |
++--------------+-------------+   +-------------+----------------+
+               |                               ^
+               | (Calls Tools)                 | (Polls)
+               v                               |
++--------------+-------------+   +-------------+----------------+
+|    THE HANDS (Action)      |   |    EXTERNAL SOURCES          |
+|       MCP Servers          |-->|   (Gmail, WhatsApp, Banks)   |
+|   (Execute API Calls)      |   |                              |
++----------------------------+   +------------------------------+
+```
 
-## 3. The Memory: "Obsidian" (State)
-*   **The Component:** A folder of Markdown files.
-*   **Function:** This is the "Office Record."
-    *   **Dynamic State:** If the computer crashes, we don't lose the work. We just look at the `Dashboard.md` file to see "Invoice #4 is Pending."
-    *   **Shared Brain:** It formats the raw text data into a beautiful dashboard so the Human Manager can see what's happening at a glance.
+---
 
-## 4. The Hands: "MCP" (Action)
-*   **The Concept:** Model Context Protocol.
-*   **The Problem:** A Brain in a jar can think "Pay the bill," but it has no hands to type the credit card number.
-*   **The Solution:** MCP Servers are the "Robotic Arms."
-    *   We plug in a "Gmail Arm" (MCP Server) -> Now Claude can click 'Send'.
-    *   We plug in a "Bank Arm" (MCP Server) -> Now Claude can transfer money.
-*   **Flexibility:** If you change banks, you just swap the robotic arm (the MCP Server). You don't have to perform brain surgery (retrain the AI).
+## 2. Component Detail: The Senses (Watchers)
+**Role:** The Nervous System.
+**Function:** To bridge the gap between the "Passive" AI and the "Active" World.
+
+### How it Works
+Large Language Models cannot "listen." They need an external trigger.
+*   **The Daemon:** A lightweight Python script runs continuously in the background.
+*   **The Trigger:** It polls specific APIs or file paths.
+*   **The Handoff:** When an event is detected (e.g., New Email), it does **not** process it. It simply downloads the data, converts it to a standardized Markdown file, and drops it into the `Inbox` folder.
+*   **Why Separation?** This decouples "Seeing" from "Thinking." The Watcher is cheap and fast. The Brain (Claude) is expensive and slow. We only call the Brain when necessary.
+
+---
+
+## 3. Component Detail: The Brain (Claude Code)
+**Role:** The Cognitive Engine.
+**Function:** To process unstructured data and generate structured plans.
+
+### The "Claude Code" Difference
+We use the **Claude Code CLI**, not the web interface.
+*   **System Access:** It runs in the terminal, giving it direct access to the computer's Operating System.
+*   **Context Awareness:** It can recursively read the file structure to understand the "Project State" before making a decision.
+*   **Tool Use:** It natively understands how to use the "Hands" (MCP) to execute complex chains of logic.
+
+---
+
+## 4. Component Detail: The Memory (Obsidian)
+**Role:** State Management & User Interface.
+**Function:** To provide a persistent record of reality.
+
+### The "Dynamic Dashboard"
+The system maintains a `Dashboard.md` file that is updated in real-time.
+*   **Live Status:** Shows current bank balance, pending emails, and active projects.
+*   **Audit Trail:** Every action taken by the Agent is logged in the `Logs/` folder. This allows the Human to "rewind" and understand *why* the Agent made a specific decision.
+
+---
+
+## 5. Component Detail: The Hands (MCP)
+**Role:** The Action Interface.
+**Function:** To safely interact with external APIs.
+
+### Model Context Protocol (MCP)
+The architecture uses MCP as a standardized "Driver Layer."
+*   **The Server:** A small program that knows how to talk to a specific tool (e.g., "Stripe MCP").
+*   **The Client:** Claude connects to the server to discover what tools are available (e.g., `stripe.charge_customer()`).
+*   **The Abstraction:** If the Stripe API changes, we update the MCP Server. Claude (The Brain) does not need to be retrained. This makes the system modular and maintainable.
+
+---
+
+## 6. The Lifecycle of a Task
+
+1.  **Perception:** Watcher sees an email: *"Please send invoice for $500."*
+2.  **Ingestion:** Watcher creates file: `Inbox/Email_Request.md`.
+3.  **Orchestration:** Orchestrator detects new file and launches Claude.
+4.  **Reasoning:** Claude reads email, checks `Company_Handbook.md`, and drafts an invoice.
+5.  **Proposal:** Claude creates `Pending_Approval/Invoice_Draft.md`.
+6.  **Review:** Human moves file to `Approved/`.
+7.  **Action:** Orchestrator sees approval, launches Claude to call `Email_MCP.send()`.
+8.  **Completion:** File moved to `Done/`, Log updated.

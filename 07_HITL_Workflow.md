@@ -1,98 +1,99 @@
 # Chapter 7: Human-in-the-Loop (HITL) Workflow
 
-> *"The Safety Valve: How to grant autonomy without losing control."
+> *"The Safety Valve: Implementing Asynchronous Approval Protocols."*
 
-## 1. The Core Problem: The "Runaway Robot"
-A fully autonomous agent is dangerous.
-*   **Risk:** Hallucination. The AI might misread "$5.00" as "$5000" and send the payment.
-*   **Risk:** Social Faux Pas. The AI might send a rude email to a client.
-*   **The Goal:** We want the AI to do 99% of the work (Preparation) but 0% of the risk (Execution).
+## 1. The Engineering Challenge: Autonomy vs. Safety
+We are building a system with **High Agency** (it can act on its own).
+*   **The Risk:** Without constraints, High Agency implies High Risk (e.g., recursive spending loops).
+*   **The Solution:** We must implement a **Permission Layer**.
+*   **The Mechanism:** We decouple "Intent" from "Execution" using an asynchronous file-based lock.
 
 ---
 
-## 2. Key Terms & Concepts
+## 2. Technical Lexicon
 
-| Term | Definition | Context in Digital FTE |
+| Term | Technical Definition | Conceptual Analogy |
 | :--- | :--- | :--- |
-| **Draft Authority** | The right to *prepare* an action. | The Agent can write the email or fill out the check. |
-| **Execution Authority** | The right to *finalize* an action. | Only the Human can click "Send" or sign the check. |
-| **Asynchronous Approval** | Decoupling the "Ask" from the "Answer." | The Agent doesn't wait for you to stare at the screen. It leaves a note and moves on to other work. |
-| **Atomic Transaction** | A single, indivisible operation. | Moving a file is atomic. It's either in Folder A or Folder B. There is no confusing "halfway" state. |
+| **Asynchronous** | Operations that do not happen at the same time. The requestor does not block waiting for the answer. | Sending an email vs. a phone call. You send it, do other work, and check for a reply later. |
+| **State Management** | Tracking the condition of a system at a point in time (e.g., `Pending`, `Approved`, `Rejected`). | A traffic light. It is a state machine that controls the flow of cars. |
+| **Schema** | The structure definition of a data object. | A form template. It dictates that "Amount" must be a Number, not text. |
+| **Atomic Operation** | An action that is indivisible and irreducible. | Moving a file. It is instantaneous and cannot be "half-moved." |
 
 ---
 
-## 3. The File-Based Approval Pattern
-Instead of building a complex web app with "Approve" buttons, we use the file system.
+## 3. The Protocol: File-Based State Machine
+We use the file system as a database. The *location* of the file determines its *status*.
 
-### Step 1: The Request (Created by Agent)
-When the Agent needs permission, it creates a Markdown file in `/Vault/Pending_Approval`.
-*   **Filename:** `PAYMENT_ClientA_Invoice123.md`
-*   **Content (Structured Metadata):**
-    ```yaml
-    Action: Send Payment
-    Amount: $500.00
-    Recipient: Client A (client@example.com)
-    Reason: Monthly Service Fee
-    Status: Pending
-    Expire: 24h
-    ```
-*   **Attachment:** It may include a link to the generated PDF.
+### Phase 1: Intent Declaration (The Draft)
+The Agent generates a structured request. It uses **YAML** (Yet Another Markup Language) because it is readable by both humans and machines.
 
-### Step 2: The Pause (System State)
-The Agent **stops working on this specific task**.
-*   It logs: "Waiting for approval on Payment #123."
-*   It goes back to sleep or picks up a *different* task from the Inbox.
-*   The system is now in a "Holding Pattern."
+**Artifact:** `/Pending_Approval/PAY_001.md`
+```yaml
+---
+id: "PAY_001"
+timestamp: "2026-10-12T09:00:00Z"
+type: "payment_execution"
+payload:
+  recipient: "client_a@example.com"
+  amount: 500.00
+  currency: "USD"
+reason: "Invoice #1024 auto-detected in email."
+risk_score: "Medium"
+---
+```
+> **Engineering Note:** By using a strict Schema, the Orchestrator can programmatically parse this file later. If the user edits "500.00" to "Five Hundred," the parser will throw a Type Error, preventing the transaction. This is a safety feature.
 
-### Step 3: The Review (Human Action)
-*   You open your Obsidian Dashboard.
-*   You see a list of files in `Pending_Approval`.
-*   You open one, read the YAML summary.
-*   **Decision:**
-    *   **Approve:** You drag the file to the `/Vault/Approved` folder.
-    *   **Reject:** You drag the file to the `/Vault/Rejected` folder.
-    *   **Modify:** You edit the file (e.g., change $500 to $450) and *then* move it to Approved.
+### Phase 2: The Holding Pattern
+The Agent enters a "Wait State" for this thread.
+*   The Orchestrator ignores the file because it is in the `/Pending_Approval` directory.
+*   The system is effectively **Locked** for this transaction.
 
-### Step 4: The Execution (Orchestrator Trigger)
-The Orchestrator watches the `/Approved` folder.
-*   **Trigger:** It sees a new file land in `/Approved`.
-*   **Action:** It wakes up Claude.
-*   **Instruction:** "Execute the action described in this file."
-*   **Result:** Claude reads the *approved* file and finally calls the `payment_mcp` tool.
+### Phase 3: The State Transition (Human Action)
+The Human Manager acts as the "State Change Trigger."
+*   **Action:** Dragging the file from `/Pending_Approval` to `/Approved`.
+*   **Technical Effect:** This is an **Atomic Move**. The file path changes instantly.
+
+### Phase 4: Execution Trigger
+The Orchestrator (via `watchdog`) detects the `Moved` event.
+1.  **Parse:** It reads the YAML content.
+2.  **Validate:** It checks if the `amount` is valid.
+3.  **Execute:** It invokes the specific MCP Tool (e.g., `stripe.charge(payload['amount'])`).
+4.  **Archive:** It moves the file to `/Logs` and appends the `execution_timestamp`.
 
 ---
 
-## 4. The Safety Diagram
+## 4. The Workflow Diagram
 
 ```ascii
-[ Agent Reasoner ]
-       |
-       | (Wants to Pay)
-       v
-[ Create File: /Pending/Pay.md ] ----> [ STOP: Wait Mode ]
-                                              |
-                                              | (Time Passes...)
-                                              v
-                                    [ Human Reviewer ]
-                                    (Reads Pay.md)
-                                         /     \
-                                     (No)       (Yes)
-                                     /             \
-                        [ Move to /Rejected ]   [ Move to /Approved ]
-                                                        |
-                                                        v
-                                                [ Orchestrator ]
-                                                (Detects File)
-                                                        |
-                                                        v
-                                                [ Agent Executor ]
-                                                (Calls Bank API)
+[ AGENT REASONING ENGINE ]
+          |
+          v
+   (Generates YAML)
+          |
+          v
+[ /Pending_Approval ] <---( System Lock )
+          |
+          |
+   (Human Intervention)
+          |
+          v
+[ /Approved Directory ]
+          |
+          v
+[ ORCHESTRATOR DAEMON ]
+          |
+          +--- (Read & Parse YAML)
+          |
+          +--- (Call MCP Tool)
+          |
+          v
+[ EXTERNAL API (Bank) ]
 ```
 
 ---
 
-## 5. Why File Movement?
-Why not just type "Yes" in a chat?
-1.  **Intent:** Dragging a file is a deliberate physical action. It's harder to do by accident than typing "ok."
-2.  **Audit Trail:** The file itself becomes the permanent record. We keep the "Approved" file in the `Logs` folder forever. It proves *you* signed off on it.
-3.  **Simplicity:** No database, no server, no login page. Just folders.
+## 5. Why File Systems? (The Robustness Argument)
+Why not use a SQL Database?
+1.  **Transparency:** You can open the "Database" (Folder) and read the "Row" (File) with Notepad. You don't need a SQL client.
+2.  **Versioning:** You can use Git to track changes to the approval files.
+3.  **Resilience:** If the Python script crashes, the file remains in the folder. The "State" is preserved on disk. When the script restarts, it sees the file and picks up exactly where it left off.

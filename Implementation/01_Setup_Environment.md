@@ -54,8 +54,16 @@ We will create a contained workspace.
         .env
         Vault/99_Logs/
         Vault/System/credentials.json
+        Vault/System/token.json
         __pycache__/
+        .vscode/
+        .idea/
         ```
+
+4.  **Cleanup:** Remove the default `hello.py` file created by `uv init`.
+    ```bash
+    rm hello.py
+    ```
 
 ### Step 3: Install Node.js & Claude Code
 1.  **Install Node.js:** Download the **LTS** version from [nodejs.org](https://nodejs.org/).
@@ -75,7 +83,7 @@ For enterprise stability, we use Environment Variables instead of browser sessio
 
 2.  **Verify Connection:**
     ```bash
-    claude "Ping"
+    claude -p "Ping"
     ```
     *Expected Output: "Pong" or a conversational reply.*
 

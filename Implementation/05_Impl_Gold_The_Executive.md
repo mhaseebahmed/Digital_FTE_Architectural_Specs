@@ -32,20 +32,42 @@ def run_audit():
     
     # 1. Read Logs (Last 7 Days)
     cutoff = datetime.now() - timedelta(days=7)
-    for log_file in log_dir.glob("*.json"):
-        # (Simplified) Check file date
-        data = json.loads(log_file.read_text())
-        logs.append(data)
     
+    # Safety Check: Ensure dir exists
+    if not log_dir.exists():
+        logging.warning("No logs found.")
+        return
+
+    for log_file in log_dir.glob("*.json"):
+        try:
+            content = log_file.read_text(encoding='utf-8')
+            if not content.strip():
+                continue # Skip empty files
+                
+            data = json.loads(content)
+            # (Optional: Check date here)
+            logs.append(data)
+        except json.JSONDecodeError:
+            logging.error(f"❌ Corrupt Log File: {log_file}")
+            continue
+        except Exception as e:
+            logging.error(f"Error reading {log_file}: {e}")
+            continue
+    
+    if not logs:
+        logging.info("No logs to audit.")
+        return
+
     # 2. Synthesize with Claude
     # We dump the summary to a temp file so Claude can read it
     summary_path = Path("Vault/10_Processing/AUDIT_DATA.txt")
-    summary_path.write_text(str(logs))
+    summary_path.write_text(str(logs), encoding='utf-8')
     
     prompt = "Read 'Vault/10_Processing/AUDIT_DATA.txt'. Write a 'Monday Morning Briefing' markdown report. Save it to 'Vault/00_Inbox'."
     
     logging.info("📊 Generating Report...")
-    subprocess.run(["claude", prompt])
+    # Using -p flag for non-interactive
+    subprocess.run(["claude", "-p", prompt])
 
 if __name__ == "__main__":
     run_audit()
@@ -61,12 +83,15 @@ import schedule
 import time
 import subprocess
 import logging
+import sys
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 
 def job():
     logging.info("⏰ Triggering Weekly Audit")
-    subprocess.run(["uv", "run", "auditor.py"])
+    script_path = Path(__file__).parent / "auditor.py"
+    subprocess.run([sys.executable, str(script_path)])
 
 # Schedule: Every Monday at 9:00 AM
 schedule.every().monday.at("09:00").do(job)

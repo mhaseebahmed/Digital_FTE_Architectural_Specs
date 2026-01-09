@@ -54,6 +54,11 @@ This watches the `/40_Approved` folder.
 3.  Tell Claude: "EXECUTE this plan."
 
 ```python
+import shutil
+import subprocess
+import logging
+from watchdog.events import FileSystemEventHandler
+
 class ApprovalHandler(FileSystemEventHandler):
     def on_created(self, event):
         logging.info(f"✅ APPROVAL DETECTED: {event.src_path}")
@@ -71,16 +76,23 @@ This script launches all subsystems as separate processes. This prevents one cra
 ```python
 import subprocess
 import time
+import sys
+from pathlib import Path
 
 def start_system():
     procs = []
     
+    # Path Safety: Ensure we find the scripts relative to THIS file
+    base_dir = Path(__file__).parent.resolve()
+    watcher_script = base_dir / "watcher.py"
+    gmail_script = base_dir / "gmail_poller.py"
+    
     # Launch File Watcher (Guide 03)
-    p1 = subprocess.Popen(["uv", "run", "watcher.py"])
+    p1 = subprocess.Popen([sys.executable, str(watcher_script)])
     procs.append(p1)
     
     # Launch Gmail Poller
-    p2 = subprocess.Popen(["uv", "run", "gmail_poller.py"])
+    p2 = subprocess.Popen([sys.executable, str(gmail_script)])
     procs.append(p2)
     
     print("🌟 Silver Tier Orchestrator Online. Press Ctrl+C to stop.")

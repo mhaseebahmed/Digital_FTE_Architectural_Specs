@@ -18,26 +18,48 @@ WhatsApp is a critical communication channel for modern business, yet it lacks a
 
 ---
 
-## 3. The Implementation Architecture
+## 3. Installation & Setup
+This tool requires binaries that must be downloaded separately.
+
+1.  **Add Library:**
+    ```bash
+    uv add playwright
+    ```
+
+2.  **Install Browser Binaries (CRITICAL STEP):**
+    ```bash
+    uv run playwright install chromium
+    ```
+    *If you skip this, the script will crash immediately.*
+
+---
+
+## 4. The Implementation Architecture
 
 ### Step 1: Session Management
 We do not login on every run.
-1.  **First Run:** Script opens a Visible Browser. You scan the QR code.
-2.  **Save:** Script saves the `session.json` (Auth tokens) to a secure folder.
-3.  **Subsequent Runs:** Script loads `session.json` and launches in **Headless** mode.
+1.  **First Run (Headful):** Run the script with `headless=False`. Scan the QR code.
+2.  **Save State:**
+    ```python
+    context.storage_state(path="Vault/System/whatsapp_state.json")
+    ```
+3.  **Subsequent Runs (Headless):**
+    ```python
+    browser.new_context(storage_state="Vault/System/whatsapp_state.json")
+    ```
 
 ### Step 2: The Observation Loop
 1.  **Navigation:** Go to `web.whatsapp.com`.
-2.  **Wait for Load:** Wait for the chat list to appear.
-3.  **Scan:** Look for the HTML class `.unread-count` (or similar).
+2.  **Wait for Load:** Wait for the chat list selector (`div[aria-label="Chat list"]`).
+3.  **Scan:** Look for the HTML class `.unread-count` (Note: This class name changes often. Use text-based selectors like `has-text("2")`).
 4.  **Action:** 
-    *   If found, click the chat.
-    *   Read the last 5 messages.
+    *   Click the chat.
+    *   Scrape all `message-in` elements.
     *   Normalize to Markdown.
 
 ---
 
-## 4. Normalization Schema (Chat Transcript)
+## 5. Normalization Schema (Chat Transcript)
 Conversations are different from Emails. They are snippets of text.
 
 ```markdown
@@ -57,8 +79,8 @@ The Agent should check the /00_Inbox for a corresponding Gmail file.
 
 ---
 
-## 5. Why this is Enterprise-Grade
+## 6. Why this is Enterprise-Grade
 1.  **Stealth & Politeness:** We implement random delays (`0.5s` to `2.0s`) between actions to simulate human movement, preventing WhatsApp from flagging the account as a bot.
-2.  **Robust Selectors:** We use "Text-based" selectors (e.g., `contains("Unread")`) rather than fragile CSS paths that change when WhatsApp updates its UI.
+2.  **Robust Selectors:** We use "Text-based" selectors (e.g., `page.get_by_text("Unread")`) rather than fragile CSS paths.
 3.  **Health Checks:** If the script finds itself at the "Login Page" instead of the "Chat Page," it alerts the Human that the session has expired.
 4.  **Efficiency:** The script only "scrapes" the message if it hasn't been processed before (checking against a local DB).

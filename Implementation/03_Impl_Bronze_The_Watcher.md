@@ -17,9 +17,10 @@ A naive watcher triggers on *any* file event. If Claude reads the file, the OS m
 
 **The Safe Protocol:**
 1.  **Detect:** File appears in `00_Inbox`.
-2.  **Lock:** Watcher immediately moves file to `10_Processing`.
-3.  **Process:** Claude works on the file in `10_Processing`.
-4.  **Archive:** Orchestrator moves file to `20_Done`.
+2.  **Stabilize:** Wait for the file size to stop changing (Large PDF upload protection).
+3.  **Lock:** Watcher immediately moves file to `10_Processing`.
+4.  **Process:** Claude works on the file in `10_Processing`.
+5.  **Archive:** Orchestrator moves file to `20_Done`.
 
 ---
 
@@ -30,6 +31,7 @@ import time
 import shutil
 import logging
 import subprocess
+import os
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -52,15 +54,31 @@ class SafeHandler(FileSystemEventHandler):
         self.process_file(src_path)
 
     def process_file(self, file_path):
+        # Step 0: Stabilization Loop
+        if not self.wait_for_file_ready(file_path):
+            return
+
         # Step 1: Move to Processing (The Lock)
         processing_dir = Path("Vault/10_Processing")
         target_path = processing_dir / file_path.name
         
-        try:
-            shutil.move(str(file_path), str(target_path))
-            logging.info(f"🔒 Locked file into: {target_path}")
-        except Exception as e:
-            logging.error(f"Failed to move file: {e}")
+        # Retry Loop for Windows File Locking
+        success = False
+        for _ in range(3):
+            try:
+                shutil.move(str(file_path), str(target_path))
+                logging.info(f"🔒 Locked file into: {target_path}")
+                success = True
+                break
+            except PermissionError:
+                logging.warning("File locked by another process. Retrying in 1s...")
+                time.sleep(1)
+            except Exception as e:
+                logging.error(f"Failed to move file: {e}")
+                return
+
+        if not success:
+            logging.error("❌ Could not lock file. Aborting.")
             return
 
         # Step 2: Wake up Claude
@@ -72,12 +90,31 @@ class SafeHandler(FileSystemEventHandler):
         shutil.move(str(target_path), str(final_path))
         logging.info(f"✅ Task Complete. Archived to: {final_path}")
 
+    def wait_for_file_ready(self, file_path, timeout=10):
+        """Waits until file size stops changing (Upload Complete)."""
+        start_time = time.time()
+        last_size = -1
+        
+        while time.time() - start_time < timeout:
+            try:
+                current_size = os.path.getsize(file_path)
+                if current_size == last_size and current_size > 0:
+                    return True
+                last_size = current_size
+                time.sleep(1)
+            except FileNotFoundError:
+                return False
+        
+        logging.error(f"❌ File Timeout: {file_path}")
+        return False
+
     def trigger_brain(self, file_path):
         prompt = f"Analyze the file '{file_path}'. Follow instructions in Vault/System/Company_Handbook.md."
         
         logging.info("🧠 Invoking Claude Code...")
+        # CRITICAL: Use -p flag for non-interactive prompt
         result = subprocess.run(
-            ["claude", prompt], 
+            ["claude", "-p", prompt], 
             capture_output=True, 
             text=True
         )
@@ -109,10 +146,10 @@ if __name__ == "__main__":
 
 ## 4. Verification
 1.  Run `uv run watcher.py`.
-2.  Drop a text file in `00_Inbox`.
+2.  Drop a **Large** PDF file in `00_Inbox`.
 3.  **Expectation:**
     *   Console says "Detected".
-    *   File disappears from Inbox.
-    *   Console says "Locked".
-    *   Console says "Claude finished".
-    *   File appears in `20_Done`.
+    *   **Pause (1-2s):** Script waits for upload.
+    *   File moves to Processing.
+    *   Claude executes.
+    *   File moves to Done.
